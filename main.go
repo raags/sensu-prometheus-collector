@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/api/prometheus"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
+	"github.com/smira/go-statsd"
 )
 
 const (
@@ -63,6 +64,25 @@ func CreateJSONMetrics(samples model.Vector) string {
 	jsonMetrics, _ := json.Marshal(metrics)
 
 	return string(jsonMetrics)
+}
+
+func SendToStatsD(samples model.Vector, metricPrefix string, host string, port string) {
+	s := statsd.NewClient(host+":"+port, statsd.TagStyle(statsd.TagFormatDatadog), statsd.MetricPrefix(metricPrefix))
+	defer s.Close()
+
+	for _, sample := range samples {
+		name := string(sample.Metric["__name__"])
+
+		var tags []statsd.Tag
+		for name, value := range sample.Metric {
+			if name != "__name__" {
+				tag := statsd.StringTag(string(name), string(value))
+				tags = append(tags, tag)
+			}
+		}
+
+		s.Gauge(name, int64(sample.Value), tags...)
+	}
 }
 
 func CreateGraphiteMetrics(samples model.Vector, metricPrefix string) string {
@@ -117,7 +137,7 @@ func CreateInfluxMetrics(samples model.Vector, metricPrefix string) string {
 	return metrics
 }
 
-func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix string) error {
+func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix string, statsdHost string, statsdPort string) error {
 	output := ""
 
 	switch outputFormat {
@@ -127,6 +147,8 @@ func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix strin
 		output = CreateGraphiteMetrics(samples, metricPrefix)
 	case "json":
 		output = CreateJSONMetrics(samples)
+	case "sendtostatsd":
+		SendToStatsD(samples, metricPrefix, statsdHost, statsdPort)
 	}
 
 	fmt.Print(output)
@@ -238,7 +260,9 @@ func main() {
 	exporterAuthorizationHeader := flag.String("exporter-authorization", "", "Prometheus exporter Authorization header.")
 	promURL := flag.String("prom-url", "http://localhost:9090", "Prometheus API URL.")
 	queryString := flag.String("prom-query", "up", "Prometheus API query string.")
-	outputFormat := flag.String("output-format", "influx", "The check output format to use for metrics {influx|graphite|json}.")
+	outputFormat := flag.String("output-format", "influx", "The check output format to use for metrics {influx|graphite|json|sendtostatsd}.")
+	statsdHost := flag.String("statsd-host", "localhost", "Statsd hostname for sendtostatsd")
+	statsdPort := flag.String("statsd-port", "8125", "Statsd port for sendtostatsd")
 	metricPrefix := flag.String("metric-prefix", "", "Metric name prefix, only supported by line protocol output formats.")
 	insecureSkipVerify := flag.Bool("insecure-skip-verify", false, "Skip TLS peer verification.")
 	flag.Parse()
@@ -270,7 +294,7 @@ func main() {
 		}
 	}
 
-	err = OutputMetrics(samples, *outputFormat, *metricPrefix)
+	err = OutputMetrics(samples, *outputFormat, *metricPrefix, *statsdHost, *statsdPort)
 
 	if err != nil {
 		_ = fmt.Errorf("error %v", err)
