@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -137,6 +138,47 @@ func CreateInfluxMetrics(samples model.Vector, metricPrefix string) string {
 	return metrics
 }
 
+func FilterSamples(samples model.Vector, includeRegex string, excludeRegex string) (model.Vector, error) {
+	var reInclude, reExclude *regexp.Regexp
+	var err error
+
+	if includeRegex != "" {
+		reInclude, err = regexp.Compile(includeRegex)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if excludeRegex != "" {
+		reExclude, err = regexp.Compile(excludeRegex)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var filteredSamples model.Vector
+	for _, sample := range samples {
+		metricString := sample.Metric.String()
+
+		var matchInclude, matchExclude bool
+		if reInclude == nil {
+			// include all metrics
+			matchInclude = true
+		} else {
+			matchInclude = reInclude.MatchString(metricString)
+		}
+
+		if reExclude != nil {
+			matchExclude = reExclude.MatchString(metricString)
+		}
+
+		if matchInclude == true && matchExclude == false {
+			filteredSamples = append(filteredSamples, sample)
+		}
+	}
+	return filteredSamples, nil
+}
+
 func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix string, statsdHost string, statsdPort string) error {
 	output := ""
 
@@ -261,6 +303,8 @@ func main() {
 	promURL := flag.String("prom-url", "http://localhost:9090", "Prometheus API URL.")
 	queryString := flag.String("prom-query", "up", "Prometheus API query string.")
 	outputFormat := flag.String("output-format", "influx", "The check output format to use for metrics {influx|graphite|json|sendtostatsd}.")
+	includeRegex := flag.String("include-regex", "", "Regex to include metrics applied agasint the metric in Prometheus exposition format")
+	excludeRegex := flag.String("exclude-regex", "", "Regex to exclude metrics, applied after -include-regex")
 	statsdHost := flag.String("statsd-host", "localhost", "Statsd hostname for sendtostatsd")
 	statsdPort := flag.String("statsd-port", "8125", "Statsd port for sendtostatsd")
 	metricPrefix := flag.String("metric-prefix", "", "Metric name prefix, only supported by line protocol output formats.")
@@ -288,6 +332,14 @@ func main() {
 	} else {
 		samples, err = QueryPrometheus(*promURL, *queryString)
 
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(2)
+		}
+	}
+
+	if *includeRegex != "" || *excludeRegex != "" {
+		samples, err = FilterSamples(samples, *includeRegex, *excludeRegex)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(2)
