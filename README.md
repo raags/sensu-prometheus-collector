@@ -1,4 +1,9 @@
-[![Bonsai Asset Badge](https://img.shields.io/badge/Sensu%20Prometheus%20Collector-Download%20Me-brightgreen.svg?colorB=89C967&logo=sensu)](https://bonsai.sensu.io/assets/sensu/sensu-prometheus-collector)
+# Additions
+
+* Adds `-include-regex` and `-exclude-regex`
+* `sendtostatsd` outputFormat to send to another statsd server. This is useful when statsd is outside the sensu events pipeline.
+
+[![Bonsai Asset Badge](https://img.shields.io/badge/Sensu%20Prometheus%20Collector-Download%20Me-brightgreen.svg?colorB=89C967&logo=sensu)](https://bonsai.sensu.io/assets/raags/sensu-prometheus-collector)
 
 # Sensu Prometheus Collector
 

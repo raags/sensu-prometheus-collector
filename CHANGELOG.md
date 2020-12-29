@@ -4,6 +4,11 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.2-1] - 2020-12-29
+### Added
+- Adds `-include-regex` and `-exclude-regex`
+- `sendtostatsd` outputFormat to send to another statsd server. This is useful when statsd is outside the sensu events pipeline.
+
 ## [1.3.2] - 2020-07-23
 ### Changed
 - Updated Bonsai YAML to include the armv6 build release assets
