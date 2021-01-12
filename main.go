@@ -67,21 +67,31 @@ func CreateJSONMetrics(samples model.Vector) string {
 	return string(jsonMetrics)
 }
 
-func SendToStatsD(samples model.Vector, metricPrefix string, host string, port string) {
+func SendToStatsD(samples model.Vector, metricPrefix string, globalTagsArr []string, host string, port string) {
 	s := statsd.NewClient(host+":"+port, statsd.TagStyle(statsd.TagFormatDatadog), statsd.MetricPrefix(metricPrefix))
 	defer s.Close()
+
+	var globalTags []statsd.Tag
+	if len(globalTagsArr) > 0 {
+		for _, tagString := range globalTagsArr {
+			tagkv := strings.Split(tagString, ":")
+			tag := statsd.StringTag(strings.TrimSpace(tagkv[0]), strings.TrimSpace(tagkv[1]))
+			globalTags = append(globalTags, tag)
+		}
+	}
 
 	for _, sample := range samples {
 		name := string(sample.Metric["__name__"])
 
-		var tags []statsd.Tag
+		var metricTags []statsd.Tag
 		for name, value := range sample.Metric {
 			if name != "__name__" {
 				tag := statsd.StringTag(string(name), string(value))
-				tags = append(tags, tag)
+				metricTags = append(metricTags, tag)
 			}
 		}
 
+		tags := append(globalTags, metricTags...)
 		s.Gauge(name, int64(sample.Value), tags...)
 	}
 }
@@ -179,7 +189,7 @@ func FilterSamples(samples model.Vector, includeRegex string, excludeRegex strin
 	return filteredSamples, nil
 }
 
-func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix string, statsdHost string, statsdPort string) error {
+func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix string, globalTagsArr []string, statsdHost string, statsdPort string) error {
 	output := ""
 
 	switch outputFormat {
@@ -190,7 +200,10 @@ func OutputMetrics(samples model.Vector, outputFormat string, metricPrefix strin
 	case "json":
 		output = CreateJSONMetrics(samples)
 	case "sendtostatsd":
-		SendToStatsD(samples, metricPrefix, statsdHost, statsdPort)
+		SendToStatsD(samples, metricPrefix, globalTagsArr, statsdHost, statsdPort)
+	default:
+		log.Println("Error: Unknown output format")
+		os.Exit(2)
 	}
 
 	fmt.Print(output)
@@ -308,6 +321,7 @@ func main() {
 	statsdHost := flag.String("statsd-host", "localhost", "Statsd hostname for sendtostatsd")
 	statsdPort := flag.String("statsd-port", "8125", "Statsd port for sendtostatsd")
 	metricPrefix := flag.String("metric-prefix", "", "Metric name prefix, only supported by line protocol output formats.")
+	globalTags := flag.String("global-tags", "", "Tags to add to all metrics, colon separated csv e.g. foo:bar,baz:bar")
 	insecureSkipVerify := flag.Bool("insecure-skip-verify", false, "Skip TLS peer verification.")
 	flag.Parse()
 
@@ -341,12 +355,18 @@ func main() {
 	if *includeRegex != "" || *excludeRegex != "" {
 		samples, err = FilterSamples(samples, *includeRegex, *excludeRegex)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 			os.Exit(2)
 		}
 	}
 
-	err = OutputMetrics(samples, *outputFormat, *metricPrefix, *statsdHost, *statsdPort)
+	var globalTagsArr []string
+	if *globalTags != "" {
+		globalTagsTrimed := strings.TrimSpace(*globalTags)
+		globalTagsArr = strings.Split(globalTagsTrimed, ",")
+	}
+
+	err = OutputMetrics(samples, *outputFormat, *metricPrefix, globalTagsArr, *statsdHost, *statsdPort)
 
 	if err != nil {
 		_ = fmt.Errorf("error %v", err)
